@@ -200,7 +200,7 @@ const map=L.map('map',{zoomControl:false,attributionControl:true}).setView([user
 // Esri World Dark Gray Canvas: keyless raster tiles, real detail up to z16 (upscaled beyond).
 // (CARTO's basemaps.cartocdn.com started requiring an API key in Aug 2026.)
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{
-  maxZoom:18, maxNativeZoom:16, attribution:'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors · ADS-B: ADSB.lol / adsb.fi'
+  maxZoom:18, maxNativeZoom:16, attribution:'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors · ADS-B: ADSB.lol / adsb.fi / OpenSky'
 }).addTo(map);
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',{
   maxZoom:18, maxNativeZoom:16, pane:'overlayPane'
@@ -255,13 +255,29 @@ const direct=(la,lo,nm)=>`https://api.adsb.lol/v2/lat/${la}/lon/${lo}/dist/${nm}
 const adsbfi=(la,lo,nm)=>`https://opendata.adsb.fi/api/v2/lat/${la}/lon/${lo}/dist/${nm}`;
 function normProxy(v){v=String(v||'').trim().replace(/\/+$/,'');if(!v)return '';if(!/^https?:\/\//.test(v))v='https://'+v;return v}
 let proxyUrl=normProxy(localStorage.getItem('skytrack.proxy'));
+const onPhoneServer=/^(localhost|127\.0\.0\.1)$/.test(location.hostname)&&/^https?:$/.test(location.protocol);
 function buildSources(){
  const own=proxyUrl?[{name:'Your Cloudflare relay',url:(la,lo,nm)=>`${proxyUrl}/?lat=${la}&lon=${lo}&dist=${nm}`}]:[];
- return [PUBLIC_SOURCES[0],...own,...PUBLIC_SOURCES.slice(1)];
+ // same-origin phone server (Termux): no CORS, uses the phone's own connection
+ const local=onPhoneServer?[{name:'This phone (local server)',url:(la,lo,nm)=>`/api?lat=${la}&lon=${lo}&dist=${nm}`}]:[];
+ return [...local,PUBLIC_SOURCES[0],...own,...PUBLIC_SOURCES.slice(1)];
 }
+const openskyUrl=(la,lo,nm)=>{const lat=+la,lon=+lo,dLat=nm*1.852/111,dLon=dLat/Math.cos(lat*Math.PI/180);
+ return `https://opensky-network.org/api/states/all?lamin=${(lat-dLat).toFixed(3)}&lomin=${(lon-dLon).toFixed(3)}&lamax=${(lat+dLat).toFixed(3)}&lomax=${(lon+dLon).toFixed(3)}`};
+function fromOpenSky(j){
+ if(!j||!('states' in j))throw new Error('unexpected response');
+ return {ac:(j.states||[]).filter(s=>s[5]!=null&&s[6]!=null).map(s=>({hex:s[0],flight:(s[1]||'').trim(),lat:s[6],lon:s[5],track:s[10],
+   alt_baro:s[8]?'ground':(s[7]!=null?Math.round(s[7]*3.28084):undefined),gs:s[9]!=null?+(s[9]*1.94384).toFixed(1):undefined,squawk:s[14]||undefined}))};
+}
+const viaEu=u=>'https://cors.eu.org/'+u;
+const viaCodetabs=u=>'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(u);
 const PUBLIC_SOURCES=[
  {name:'ADSB.lol',url:direct},
  {name:'adsb.fi',url:adsbfi},
+ {name:'OpenSky via cors.eu.org',url:(la,lo,nm)=>viaEu(openskyUrl(la,lo,nm)),parse:fromOpenSky},
+ {name:'ADSB.lol via cors.eu.org',url:(la,lo,nm)=>viaEu(direct(la,lo,nm))},
+ {name:'OpenSky via codetabs',url:(la,lo,nm)=>viaCodetabs(openskyUrl(la,lo,nm)),parse:fromOpenSky},
+ {name:'ADSB.lol via codetabs',url:(la,lo,nm)=>viaCodetabs(direct(la,lo,nm))},
 ];
 let SOURCES=buildSources();
 function setProxy(v){
@@ -283,7 +299,7 @@ async function fetchJSON(url,ms){
 }
 function describeError(e){
  const m=String(e&&e.message||e);
- if(/^HTTP 502/.test(m))return 'relay reached, but '+m.replace(/^HTTP 502\s*/,'').replace(/^\(|\)$/g,'')+'';
+ if(/^HTTP 502/.test(m))return 'server reached, but '+m.replace(/^HTTP 502\s*/,'').replace(/^\(|\)$/g,'')+'';
  if(/^HTTP 5/.test(m))return m+' · server error';
  if(/HTTP 4(01|03)/.test(m))return m+' · access denied (key required?)';
  if(/HTTP 429/.test(m))return m+' · rate limited, wait a minute';
@@ -302,7 +318,8 @@ async function fetchAircraft(){
  let ok=false;
  for(const i of order){
    try{
-     const j=await fetchJSON(SOURCES[i].url(la,lo,nm),8000);
+     let j=await fetchJSON(SOURCES[i].url(la,lo,nm),8000);
+     if(SOURCES[i].parse)j=SOURCES[i].parse(j);
      const list=j.ac||j.aircraft;
      if(!Array.isArray(list))throw new Error('unexpected response');
      aircraft=list.filter(a=>a.lat!=null&&a.lon!=null&&a.hex);
@@ -333,7 +350,7 @@ async function testAllSources(){
  toast('Testing all sources…');
  const nm=Math.round(Math.max(6,Math.min(250,radius/1.852*1.25))), la=user.lat.toFixed(4), lo=user.lng.toFixed(4);
  for(let i=0;i<SOURCES.length;i++){const src=SOURCES[i];
-   try{const j=await fetchJSON(src.url(la,lo,nm),8000);const l=j.ac||j.aircraft;if(!Array.isArray(l))throw new Error('unexpected response');sourceStatus[i]={ok:true,msg:l.length+' aircraft',t:Date.now()}}
+   try{let j=await fetchJSON(src.url(la,lo,nm),8000);if(src.parse)j=src.parse(j);const l=j.ac||j.aircraft;if(!Array.isArray(l))throw new Error('unexpected response');sourceStatus[i]={ok:true,msg:l.length+' aircraft',t:Date.now()}}
    catch(e){sourceStatus[i]={ok:false,msg:describeError(e),t:Date.now()}}
  }
  lastCheck=Date.now(); if(drawerView==='settings')renderSettings();
@@ -489,7 +506,7 @@ function renderSettings(){
   <button class="primary" id="testBtn">Test all sources now</button>
   <button class="primary" id="resetBtn" style="background:#3a1620;box-shadow:none">Reset bookmarks & history</button>
  </div>
- <div style="padding:16px 5px;color:#6f879f;font-size:10px;line-height:1.6">Live aircraft data: community ADS-B networks (ADSB.lol, adsb.fi), ODbL. Map: © OpenStreetMap contributors, © CARTO. Bookmarks and your location are stored only in this browser.</div>`;
+ <div style="padding:16px 5px;color:#6f879f;font-size:10px;line-height:1.6">Live aircraft data: community ADS-B networks (ADSB.lol, adsb.fi, OpenSky Network), ODbL. Map: © OpenStreetMap contributors, © CARTO. Bookmarks and your location are stored only in this browser.</div>`;
  document.querySelectorAll('#drawerContent .segment [data-rs]').forEach(btn=>btn.onclick=()=>{setRefreshSec(+btn.dataset.rs);renderSettings()});
  document.querySelectorAll('.toggle-row').forEach(r=>r.onclick=()=>{
    const k=r.dataset.k;
@@ -580,4 +597,4 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)resumeFetc
 window.addEventListener('pageshow',ev=>{if(ev.persisted)resumeFetch()});
 </script>
 </body>
-      </html>
+</html>
