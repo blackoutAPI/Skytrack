@@ -1367,34 +1367,36 @@ async function fetchAircraft() {
       "live"
     );
 
-  } catch (error) {
+ } catch (error) {
 
-    /*
-     * IMPORTANT:
-     *
-     * A temporary network failure does NOT
-     * delete the aircraft currently displayed.
-     *
-     * The next 1-second request can recover
-     * automatically.
-     */
     sourceStates["AvioADSB"] =
       "bad";
 
     renderSources();
 
+    let message =
+      "AvioADSB connection failed";
+
+    if (error?.name === "AbortError") {
+
+      message =
+        "AvioADSB timeout";
+
+    } else if (
+      error?.message
+    ) {
+
+      message =
+        "AvioADSB: " +
+        error.message;
+
+    }
+
     setStatus(
-      error?.name === "AbortError"
-        ? "AvioADSB timeout"
-        : "AvioADSB connection failed",
+      message,
       "error"
     );
 
-    /*
-     * Keep the existing aircraftData
-     * and therefore keep the existing
-     * markers on the map.
-     */
     lastUpdate.textContent =
       "last update failed";
 
