@@ -782,23 +782,16 @@ button {
    CONFIGURATION
 ========================================================= */
 
-const RELAY =
-  "https://skytrack.citac63895.workers.dev";
+const AVIOADSB_URL =
+  "https://avioadsb.org/live/data/aircraft.json";
 
 const DEFAULT_LAT = 48.137;
 const DEFAULT_LON = 11.575;
 const DEFAULT_DIST = 50;
 const DEFAULT_REFRESH = 1;
 
-/*
- * We intentionally use ONLY the Cloudflare relay
- * from the browser.
- *
- * Direct ADSB APIs and public CORS proxies are
- * not used by this page.
- */
 const SOURCES = [
-  "Cloudflare relay"
+  "AvioADSB"
 ];
 
 /* =========================================================
