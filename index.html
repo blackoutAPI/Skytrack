@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07111f">
+<title>SkyTrack — Live Airspace</title>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --bg:#050b14;--panel:rgba(7,17,31,.78);--panel2:rgba(12,27,46,.86);
+  --line:rgba(155,195,235,.16);--text:#f5f8fc;--muted:#93a5ba;
+  --blue:#1597ff;--blue2:#56b7ff;--green:#43e39a;--yellow:#ffd34e;
+  --shadow:0 20px 60px rgba(0,0,0,.42);--radius:22px;
+}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",Inter,system-ui,sans-serif;overflow:hidden}
+button,input{font:inherit;color:inherit}button{border:0;cursor:pointer}
+#app{height:100%;position:relative;overflow:hidden;background:radial-gradient(circle at 50% 10%,#102744 0,#07111f 38%,#03070d 100%)}
+#map{position:absolute;inset:0;background:#1b1f24}
+.leaflet-control-attribution{background:rgba(0,0,0,.48)!important;color:#b9c8d8!important;font-size:9px}
+.leaflet-control-attribution a{color:#b9c8d8!important}
+.leaflet-control-zoom{display:none}
+.topbar{position:absolute;z-index:900;top:16px;left:16px;right:16px;display:flex;align-items:center;gap:10px}
+.brand{display:flex;align-items:center;gap:10px;padding:10px 13px;border:1px solid var(--line);border-radius:17px;
+background:rgba(5,12,23,.76);backdrop-filter:blur(22px);box-shadow:var(--shadow)}
+.logo{width:30px;height:30px;border-radius:10px;background:linear-gradient(145deg,#54baff,#087af4);
+display:grid;place-items:center;box-shadow:0 8px 24px #087af444}
+.logo span{font-size:17px;transform:rotate(-12deg)}
+.brand b{font-size:14px;letter-spacing:-.2px}.brand small{display:block;color:#8fa4ba;font-size:9px;margin-top:1px}
+.search{flex:1;max-width:430px;display:flex;align-items:center;gap:8px;background:rgba(5,12,23,.76);
+border:1px solid var(--line);border-radius:17px;padding:0 13px;height:49px;backdrop-filter:blur(22px)}
+.search input{background:none;border:0;outline:0;width:100%;font-size:13px}.search input::placeholder{color:#72869d}
+.iconbtn{width:45px;height:45px;border-radius:15px;background:rgba(5,12,23,.76);border:1px solid var(--line);
+backdrop-filter:blur(22px);display:grid;place-items:center;font-size:19px}
+.mapstack{position:absolute;z-index:900;right:16px;top:86px;display:grid;gap:8px}
+.glass{background:rgba(5,12,23,.72);border:1px solid var(--line);backdrop-filter:blur(20px);box-shadow:var(--shadow)}
+.mapbtn{height:43px;min-width:43px;border-radius:14px;font-size:13px;padding:0 12px}
+.mapbtn.active{background:#128ef1;color:white;box-shadow:0 8px 24px #128ef144}
+.focus-card{position:absolute;z-index:900;left:16px;bottom:90px;width:min(380px,calc(100% - 32px));padding:15px;border-radius:22px;
+background:linear-gradient(180deg,rgba(9,23,41,.9),rgba(4,12,23,.84));border:1px solid var(--line);backdrop-filter:blur(24px);box-shadow:var(--shadow)}
+.focus-row{display:flex;justify-content:space-between;align-items:center}.eyebrow{font-size:10px;color:#83a0bd;text-transform:uppercase;letter-spacing:1.2px}
+.focus-title{font-size:17px;font-weight:700;margin-top:3px}.pill{font-size:11px;padding:6px 9px;border-radius:10px;background:#0d2238;color:#9bc9ee}
+.range{display:flex;align-items:center;gap:10px;margin-top:13px}.range input{flex:1;accent-color:var(--blue)}.range output{font-size:12px;font-weight:700;min-width:48px;text-align:right}
+.stats{display:flex;gap:8px;margin-top:11px}.stat{flex:1;padding:9px 10px;border-radius:13px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.055)}
+.stat b{display:block;font-size:16px}.stat span{font-size:9px;color:var(--muted)}
+.bottom{position:absolute;z-index:1150;left:50%;transform:translateX(-50%);bottom:10px;width:min(560px,calc(100% - 20px));
+height:68px;border-radius:24px;display:flex;justify-content:space-around;align-items:center;padding:5px 7px;
+background:rgba(5,13,24,.86);border:1px solid var(--line);backdrop-filter:blur(25px);box-shadow:var(--shadow)}
+.nav{height:56px;min-width:72px;border-radius:18px;background:transparent;color:#758aa2;font-size:10px;display:grid;place-items:center;gap:2px;padding:7px}
+.nav .ni{font-size:19px;line-height:19px}.nav.active{color:white;background:rgba(28,151,255,.13)}.nav.active .ni{filter:drop-shadow(0 0 8px #1597ff)}
+.air{position:relative;width:32px;height:32px;display:grid;place-items:center;transform-origin:center}
+.air::before{content:"";width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:18px solid #eef7ff;
+filter:drop-shadow(0 0 5px rgba(80,190,255,.8));transform:rotate(0deg)}
+.air::after{content:"";position:absolute;width:22px;height:4px;border-radius:50%;background:#d9efff;transform:rotate(0deg);top:16px}
+.air.selected::before{border-bottom-color:#ffe24c;filter:drop-shadow(0 0 8px #ffd34e)}
+.air .label{position:absolute;white-space:nowrap;left:17px;top:-18px;background:rgba(3,10,18,.86);border:1px solid rgba(140,190,235,.18);
+padding:5px 7px;border-radius:8px;font-size:9px;font-weight:700;color:#eaf5ff;pointer-events:none}
+.air .label em{font-style:normal;color:#8fb4d8;font-weight:500;margin-left:4px}
+.plane-marker{background:transparent;border:0}
+.user-dot{width:18px;height:18px;border:3px solid white;border-radius:50%;background:#1597ff;box-shadow:0 0 0 9px #1597ff22,0 0 22px #1597ff99}
+.range-circle{stroke:#1597ff;fill:#1597ff10;stroke-width:1.5;stroke-dasharray:5 5}
+#drawer{position:absolute;z-index:1100;right:0;top:0;bottom:0;width:min(430px,100%);transform:translateX(102%);
+transition:transform .32s cubic-bezier(.2,.8,.2,1);background:rgba(4,12,22,.93);border-left:1px solid var(--line);
+backdrop-filter:blur(28px);box-shadow:-30px 0 80px rgba(0,0,0,.45);overflow:auto;padding:20px 16px 100px}
+#drawer.open{transform:translateX(0)}
+.drawer-head{display:flex;justify-content:space-between;align-items:center;margin:4px 3px 18px}.drawer-head h2{margin:0;font-size:23px;letter-spacing:-.6px}
+.close{width:38px;height:38px;border-radius:13px;background:#102237;color:#b8cbe0}
+.segment{display:flex;background:#0b192a;padding:3px;border-radius:13px;margin-bottom:14px}.segment button{flex:1;padding:9px;border-radius:10px;background:none;color:#7890a8;font-size:11px}
+.segment button.active{background:#1a8fe9;color:white}
+.book{display:flex;gap:11px;padding:12px;border:1px solid rgba(150,195,235,.1);background:rgba(255,255,255,.035);border-radius:17px;margin-bottom:9px}
+.thumb{width:68px;height:50px;border-radius:12px;background:linear-gradient(145deg,#274e77,#0b1d30);display:grid;place-items:center;overflow:hidden}
+.thumb .air{transform:scale(1.2) rotate(20deg)}.book-main{flex:1;min-width:0}.book-top{display:flex;justify-content:space-between}.book b{font-size:13px}.star{color:#ffd34e}.book small{display:block;color:#7f96ae;font-size:10px;margin-top:3px}
+.route{margin-top:7px;font-size:11px;color:#c6d8ea}.route strong{color:#fff}.live{color:#4fe3a0;font-size:9px;font-weight:700;margin-left:6px}
+.detail{border:1px solid var(--line);border-radius:22px;background:linear-gradient(180deg,#0b2035,#071321);padding:16px;margin-top:10px}
+.hero{height:160px;border-radius:17px;background:radial-gradient(circle at 50% 35%,#2c6599,#0a1c30 70%);
+display:grid;place-items:center;position:relative;overflow:hidden}.hero .bigplane{font-size:70px;filter:drop-shadow(0 18px 20px #0008);transform:rotate(-10deg)}
+.detail h3{margin:14px 0 2px;font-size:22px}.muted{color:var(--muted);font-size:11px}.grid4{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:14px}
+.metric{padding:10px;border-radius:13px;background:#09192a;border:1px solid rgba(255,255,255,.05)}.metric b{display:block;font-size:15px}.metric span{font-size:9px;color:#7990a8}
+.primary{width:100%;height:46px;border-radius:14px;background:linear-gradient(135deg,#169eff,#0878eb);font-weight:700;margin-top:12px;box-shadow:0 10px 28px #0878eb33}
+.toast{position:absolute;z-index:1300;left:50%;top:78px;transform:translateX(-50%) translateY(-20px);opacity:0;pointer-events:none;
+background:#10283f;border:1px solid #2d5c80;padding:10px 14px;border-radius:14px;font-size:11px;box-shadow:var(--shadow);transition:.25s}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#threeD{position:absolute;z-index:700;inset:0;display:none;overflow:hidden;background:linear-gradient(#061222 0%,#0d2b43 42%,#132f42 43%,#071522 100%)}
+#threeD.show{display:block}
+.sky-haze{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 30%,rgba(89,170,235,.25),transparent 48%)}
+.ground{position:absolute;width:180%;height:130%;left:-40%;top:42%;transform:rotateX(58deg);
+background:
+linear-gradient(rgba(110,173,205,.12) 1px,transparent 1px),
+linear-gradient(90deg,rgba(110,173,205,.12) 1px,transparent 1px),
+radial-gradient(ellipse at 50% 50%,#315a65,#173541 45%,#091b28 80%);
+background-size:80px 80px,80px 80px,100% 100%;box-shadow:inset 0 0 150px #02070d}
+.horizon{position:absolute;top:42%;left:0;right:0;height:1px;background:#77b7d355;box-shadow:0 0 50px #4ca6e033}
+.alt-scale{position:absolute;right:18px;top:130px;color:#8db3cc;font-size:9px;line-height:1.9;text-align:right;z-index:10}
+.air3d{position:absolute;z-index:20;transition:left .5s,top .5s;transform-style:preserve-3d}
+.air3d .plane3{width:30px;height:30px;filter:drop-shadow(0 12px 8px #0009);transform:rotate(var(--heading))}.air3d .plane3 svg{width:100%;height:100%;display:block}
+.air3d .tag3{position:absolute;left:22px;top:-15px;white-space:nowrap;background:#06121fdd;border:1px solid #5f8aaa55;padding:6px 8px;border-radius:9px;font-size:9px}
+.modebar{position:absolute;z-index:1000;top:82px;left:50%;transform:translateX(-50%);display:flex;padding:3px;border-radius:14px;background:#071321dd;border:1px solid var(--line);backdrop-filter:blur(18px)}
+.modebar button{padding:8px 12px;border-radius:10px;background:none;color:#7890a8;font-size:10px}.modebar button.active{background:#138fea;color:white}
+.loading{position:absolute;z-index:1200;left:50%;top:50%;transform:translate(-50%,-50%);padding:12px 16px;border-radius:14px;background:#071525dd;border:1px solid var(--line);font-size:11px;display:none}
+.loading.show{display:block}.location-picker{position:absolute;z-index:1250;inset:0;pointer-events:none}.picker-card{position:absolute;z-index:3;left:50%;bottom:92px;transform:translateX(-50%);width:min(520px,calc(100% - 24px));padding:15px 16px;border-radius:20px;pointer-events:auto}.picker-title{font-size:16px;font-weight:700;margin-top:4px}.picker-sub{font-size:10px;color:#8ea5bc;margin-top:4px}.picker-actions{display:flex;gap:8px;margin-top:13px}.picker-actions button{height:42px;border-radius:13px;padding:0 15px;font-size:11px;font-weight:700}.picker-cancel{background:#102237;color:#a7bdd2}.picker-confirm{flex:1;background:linear-gradient(135deg,#159eff,#0878eb);box-shadow:0 8px 22px #0878eb33}.picker-crosshair{position:absolute;z-index:2;left:50%;top:50%;transform:translate(-50%,-50%);width:44px;height:44px;border:2px solid #fff;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:25px;text-shadow:0 0 12px #000;box-shadow:0 0 0 8px #1597ff22,0 0 28px #000;pointer-events:none}.picker-crosshair:before,.picker-crosshair:after{content:"";position:absolute;background:#fff;opacity:.9}.picker-crosshair:before{width:58px;height:1px}.picker-crosshair:after{width:1px;height:58px}body.picking #map{cursor:crosshair}
+.src-line{margin-top:9px;font-size:9.5px;color:#7f96ae}.src-line.warn{color:#ffd34e}
+.toggle-row{display:flex;justify-content:space-between;align-items:center;padding:13px 2px;border-bottom:1px solid #ffffff0d;font-size:12px;cursor:pointer}
+.switch{width:44px;height:26px;border-radius:13px;background:#1c2d40;position:relative;transition:background .2s;flex-shrink:0}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s}
+.switch.on{background:#1597ff}.switch.on::after{transform:translateX(18px)}
+.picker-gps{background:#102237;color:#56b7ff}
+body.nolabels .air .label{display:none}
+@media(max-width:700px){
+ .brand{padding:9px}.brand small{display:none}.search{max-width:none}.topbar{top:10px;left:10px;right:10px}.mapstack{right:10px;top:70px}
+ .focus-card{left:10px;bottom:86px;width:calc(100% - 20px)}.bottom{bottom:7px}.nav{min-width:62px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+  <div id="threeD"><div class="sky-haze"></div><div class="ground"></div><div class="horizon"></div><div id="air3dLayer"></div>
+    <div class="alt-scale">FL390<br>11.9 km<br><br>FL300<br>9.1 km<br><br>FL200<br>6.1 km<br><br>FL100<br>3.0 km<br><br>GROUND</div>
+  </div>
+
+  <div class="topbar">
+    <div class="brand"><div class="logo"><span>✈</span></div><div><b>SkyTrack</b><small>Live Airspace</small></div></div>
+    <div class="search"><span>⌕</span><input id="search" placeholder="Search callsign or ICAO…"></div>
+    <button class="iconbtn glass" id="locBtn" title="Use my location">⌖</button>
+  </div>
+
+  <div class="mapstack">
+    <button class="mapbtn glass active" id="focusToggle">◉ Focus</button>
+    <button class="mapbtn glass" id="threeToggle">3D</button>
+    <button class="mapbtn glass" id="refreshBtn">↻</button>
+  </div>
+
+  <div class="modebar" id="modebar" style="display:none">
+    <button class="active" data-mode="ortho">Orthographic</button><button data-mode="perspective">Perspective</button>
+  </div>
+
+  <div id="locationPicker" class="location-picker" style="display:none">
+    <div class="picker-card glass">
+      <div class="eyebrow">Set Focus Location</div>
+      <div class="picker-title">Move the map and place your location</div>
+      <div class="picker-sub">Drag the map underneath the crosshair, then confirm.</div>
+      <div class="picker-actions"><button class="picker-cancel" id="pickerCancel">Cancel</button><button class="picker-gps" id="pickerGps">⌖ GPS</button><button class="picker-confirm" id="pickerConfirm">Use this location</button></div>
+    </div>
+    <div class="picker-crosshair">+</div>
+  </div>
+
+  <div class="focus-card">
+    <div class="focus-row"><div><div class="eyebrow">Focus Mode</div><div class="focus-title" id="locationTitle">Munich (default)</div></div><div class="pill"><span id="radiusText">50</span> km</div></div>
+    <div class="range"><span style="font-size:12px">10</span><input id="radius" type="range" min="10" max="200" step="5" value="50"><span style="font-size:12px">200</span><output id="radiusOut">50 km</output></div>
+    <div class="stats"><div class="stat"><b id="count">—</b><span>aircraft nearby</span></div><div class="stat"><b id="nearest">—</b><span>nearest</span></div><div class="stat"><b id="updated">—</b><span>updated</span></div></div>
+    <div class="src-line" id="srcLine">Connecting to live feed…</div>
+  </div>
+
+  <nav class="bottom">
+    <button class="nav active" id="navMap"><span class="ni">◉</span>Map</button>
+    <button class="nav" id="navBookmarks"><span class="ni">☆</span>Bookmarks</button>
+    <button class="nav" id="navFlights"><span class="ni">✈</span>Nearby</button>
+    <button class="nav" id="navSettings"><span class="ni">•••</span>More</button>
+  </nav>
+
+  <aside id="drawer">
+    <div class="drawer-head"><h2 id="drawerTitle">Bookmarks</h2><button class="close" id="closeDrawer">×</button></div>
+    <div id="drawerContent"></div>
+  </aside>
+  <div class="toast" id="toast"></div>
+  <div class="loading" id="loading">Updating live airspace…</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const FALLBACK={lat:48.137,lng:11.575,name:"Munich (default)"};
+const LS="skytrack.bookmarks.v1", LOC_KEY="skytrack.location.v1";
+function loadLoc(){try{const l=JSON.parse(localStorage.getItem(LOC_KEY));if(l&&isFinite(l.lat)&&isFinite(l.lng))return l}catch(e){}return {...FALLBACK}}
+let user=loadLoc();
+let radius=50, focus=true, is3D=false, perspective=false, aircraft=[], showLabels=true, autoRefresh=true;
+let selected=null, timer=null, searchQ='', bookFilter='all', flightSort='dist', drawerView=null;
+let lastGood=0, inFlight=false, warnedOffline=false, preferredSource=0, lastCheck=0;
+const sourceStatus={};
+document.getElementById('locationTitle').textContent=user.name;
+
+const map=L.map('map',{zoomControl:false,attributionControl:true}).setView([user.lat,user.lng],8);
+// Esri World Dark Gray Canvas: keyless raster tiles, real detail up to z16 (upscaled beyond).
+// (CARTO's basemaps.cartocdn.com started requiring an API key in Aug 2026.)
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{
+  maxZoom:18, maxNativeZoom:16, attribution:'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors · ADS-B: ADSB.lol / adsb.fi / airplanes.live'
+}).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',{
+  maxZoom:18, maxNativeZoom:16, pane:'overlayPane'
+}).addTo(map);
+let userMarker=L.marker([user.lat,user.lng],{icon:L.divIcon({className:'',html:'<div class="user-dot"></div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map);
+let circle=L.circle([user.lat,user.lng],{radius:radius*1000,className:'range-circle',color:'#1597ff',fillColor:'#1597ff',fillOpacity:.05,weight:1.5,dashArray:'5 5'}).addTo(map);
+let markers=new Map();
+
+/* ---------- helpers ---------- */
+function toast(s){const e=document.getElementById('toast');e.textContent=s;e.classList.add('show');clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove('show'),2600)}
+function km(n){return n==null||!isFinite(n)?'—':(n<1?Math.round(n*1000)+' m':n.toFixed(1)+' km')}
+function getBookmarks(){try{return JSON.parse(localStorage.getItem(LS)||'[]')}catch(e){return[]}}
+function saveBookmarks(x){try{localStorage.setItem(LS,JSON.stringify(x))}catch(e){}}
+function findBook(hex){return getBookmarks().find(x=>x.hex===hex)}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function fmtAlt(a){if(a==null)return '—';if(typeof a==='number')return Math.round(a).toLocaleString()+' ft';return a==='ground'?'On ground':a}
+function altNum(a){return typeof a==='number'?a:0}
+function kmh(gs){return gs!=null&&isFinite(gs)?Math.round(gs*1.852)+' km/h':'—'}   // ADS-B ground speed is in knots
+function hdg(a){const h=a.track??a.true_heading??a.mag_heading;return h==null?null:Number(h)}
+function airlineFromCall(c){const p=(c||'').trim().slice(0,3).toUpperCase();const names={DLH:'Lufthansa',BAW:'British Airways',RYR:'Ryanair',EWG:'Eurowings',SWR:'Swiss',AUA:'Austrian',UAE:'Emirates',AFR:'Air France',KLM:'KLM',EZY:'easyJet',TUI:'TUI',CFG:'Condor',THY:'Turkish Airlines',QTR:'Qatar Airways',DLA:'Air Dolomiti',WZZ:'Wizz Air',SAS:'SAS',UAL:'United',DAL:'Delta',AAL:'American',LOT:'LOT Polish',TAP:'TAP Portugal',IBE:'Iberia',VLG:'Vueling',ETD:'Etihad',SIA:'Singapore Airlines',CPA:'Cathay Pacific',ANA:'ANA',JAL:'Japan Airlines',ACA:'Air Canada',FIN:'Finnair',BEL:'Brussels Airlines',ITY:'ITA Airways',AEE:'Aegean',PGT:'Pegasus',SXS:'SunExpress'};return names[p]||'Unknown operator'}
+function planeName(a){return a.t||'Aircraft'}
+function currentFlight(a){return String(a.flight||a.r||a.hex||'UNKNOWN').trim()}
+function distanceToUser(a){return hav(user.lat,user.lng,a.lat,a.lon)}
+function hav(lat1,lon1,lat2,lon2){const R=6371,d=Math.PI/180;const dp=(lat2-lat1)*d,dl=(lon2-lon1)*d;const x=Math.sin(dp/2)**2+Math.cos(lat1*d)*Math.cos(lat2*d)*Math.sin(dl/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))}
+function matchesSearch(a){if(!searchQ)return true;return currentFlight(a).toUpperCase().includes(searchQ)||String(a.hex||'').toUpperCase().includes(searchQ)||String(a.r||'').toUpperCase().includes(searchQ)}
+function visibleAircraft(){return aircraft.filter(a=>a.lat!=null&&a.lon!=null&&(!focus||distanceToUser(a)<=radius)&&matchesSearch(a))}
+function timeStr(t){return new Date(t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+const PLANE_SVG='<svg viewBox="0 0 24 24"><path fill="#eef7ff" d="M12 1.5c.8 0 1.4.9 1.4 2v6.3l8.1 4.6v2.1l-8.1-2.5v5l2.3 1.7v1.6L12 21.4l-3.7.9v-1.6l2.3-1.7v-5l-8.1 2.5v-2.1l8.1-4.6V3.5c0-1.1.6-2 1.4-2z"/></svg>';
+
+/* ---------- map markers ---------- */
+function iconHtml(a){
+ const h=hdg(a)??0, c=findBook(a.hex)?'selected':'';
+ return `<div class="air ${c}" style="transform:rotate(${h}deg)"><div class="label" style="transform:rotate(${-h}deg)">${esc(currentFlight(a))}<em>${fmtAlt(a.alt_baro)}</em></div></div>`;
+}
+function redraw(){
+ markers.forEach(m=>map.removeLayer(m));markers.clear();
+ const vis=visibleAircraft();
+ vis.forEach(a=>{
+   const m=L.marker([a.lat,a.lon],{icon:L.divIcon({className:'plane-marker',html:iconHtml(a),iconSize:[32,32],iconAnchor:[16,16]})});
+   m.on('click',()=>openPlane(a));m.addTo(map);markers.set(a.hex,m);
+ });
+ circle.setRadius(radius*1000);circle.setLatLng([user.lat,user.lng]);userMarker.setLatLng([user.lat,user.lng]);
+ document.getElementById('count').textContent=lastGood?vis.length:'—';
+ const ds=aircraft.filter(a=>a.lat!=null&&a.lon!=null).map(distanceToUser).filter(x=>x<=radius);
+ document.getElementById('nearest').textContent=ds.length?km(Math.min(...ds)):'—';
+ document.getElementById('updated').textContent=lastGood?timeStr(lastGood):'—';
+ render3D();
+}
+
+/* ---------- live data: several free ADS-B feeds, same readsb v2 format, tried in order ---------- */
+const direct=(la,lo,nm)=>`https://api.adsb.lol/v2/lat/${la}/lon/${lo}/dist/${nm}`;
+const SOURCES=[
+ {name:'ADSB.lol',url:direct},
+ {name:'adsb.fi',url:(la,lo,nm)=>`https://opendata.adsb.fi/api/v2/lat/${la}/lon/${lo}/dist/${nm}`},
+ {name:'airplanes.live',url:(la,lo,nm)=>`https://api.airplanes.live/v2/point/${la}/${lo}/${nm}`},
+ {name:'ADSB.lol via corsproxy.io',url:(la,lo,nm)=>'https://corsproxy.io/?url='+encodeURIComponent(direct(la,lo,nm))},
+ {name:'ADSB.lol via allorigins',url:(la,lo,nm)=>'https://api.allorigins.win/raw?url='+encodeURIComponent(direct(la,lo,nm))},
+];
+async function fetchJSON(url,ms){
+ // Timeout via Promise.race instead of AbortController: some embedded previews wrap fetch
+ // and forward it with postMessage, which cannot clone an AbortSignal.
+ let t;
+ const timeout=new Promise((_,rej)=>{t=setTimeout(()=>rej(new Error('timeout after '+ms+' ms')),ms)});
+ try{
+   const r=await Promise.race([fetch(url,{cache:'no-store'}),timeout]);
+   if(!r.ok)throw new Error('HTTP '+r.status);
+   return await Promise.race([r.json(),timeout]);
+ }finally{clearTimeout(t)}
+}
+function describeError(e){
+ const m=String(e&&e.message||e);
+ if(/HTTP 4(01|03)/.test(m))return m+' · access denied (key required?)';
+ if(/HTTP 429/.test(m))return m+' · rate limited, wait a minute';
+ if(/HTTP/.test(m))return m+' · server error';
+ if(/timeout/.test(m))return 'timeout · no answer in 8 s';
+ if(/JSON|Unexpected token/i.test(m))return 'bad response (not flight data)';
+ if(/unexpected response/.test(m))return 'bad response (not flight data)';
+ if(/Failed to fetch|NetworkError|Load failed|network/i.test(m))return 'blocked · network or browser security (CORS)';
+ return m.slice(0,90);
+}
+async function fetchAircraft(){
+ if(inFlight)return; inFlight=true;
+ const nm=Math.round(focus?Math.max(6,Math.min(250,radius/1.852*1.25)):150);
+ const la=user.lat.toFixed(4), lo=user.lng.toFixed(4);
+ const order=[preferredSource,...SOURCES.map((_,i)=>i).filter(i=>i!==preferredSource)];
+ let ok=false;
+ for(const i of order){
+   try{
+     const j=await fetchJSON(SOURCES[i].url(la,lo,nm),8000);
+     const list=j.ac||j.aircraft;
+     if(!Array.isArray(list))throw new Error('unexpected response');
+     aircraft=list.filter(a=>a.lat!=null&&a.lon!=null&&a.hex);
+     sourceStatus[i]={ok:true,msg:aircraft.length+' aircraft',t:Date.now()};
+     preferredSource=i; lastGood=Date.now(); ok=true; warnedOffline=false;
+     const src=document.getElementById('srcLine');src.classList.remove('warn');
+     src.textContent='● Live via '+SOURCES[i].name+' · refreshes every 20 s';
+     break;
+   }catch(e){sourceStatus[i]={ok:false,msg:describeError(e),t:Date.now()};console.warn('Source failed:',SOURCES[i].name,e.message||e)}
+ }
+ inFlight=false; lastCheck=Date.now();
+ document.getElementById('loading').classList.remove('show');
+ if(drawerView==='settings')renderSettings();
+ if(ok){syncBookmarks();redraw();refreshOpenDrawer()}
+ else{
+   const src=document.getElementById('srcLine');src.classList.add('warn');
+   src.textContent=(lastGood?'Live feed unreachable · showing data from '+timeStr(lastGood):'No live feed reachable')+' · details: More → Data sources';
+   if(!warnedOffline){toast('No live feed reachable right now');warnedOffline=true}
+ }
+}
+
+async function testAllSources(){
+ toast('Testing all sources…');
+ const nm=Math.round(Math.max(6,Math.min(250,radius/1.852*1.25))), la=user.lat.toFixed(4), lo=user.lng.toFixed(4);
+ await Promise.all(SOURCES.map(async(src,i)=>{
+   try{const j=await fetchJSON(src.url(la,lo,nm),8000);const l=j.ac||j.aircraft;if(!Array.isArray(l))throw new Error('unexpected response');sourceStatus[i]={ok:true,msg:l.length+' aircraft',t:Date.now()}}
+   catch(e){sourceStatus[i]={ok:false,msg:describeError(e),t:Date.now()}}
+ }));
+ lastCheck=Date.now(); if(drawerView==='settings')renderSettings();
+ const firstOk=SOURCES.findIndex((_,i)=>sourceStatus[i]&&sourceStatus[i].ok);
+ if(firstOk>=0){preferredSource=firstOk;fetchAircraft()}
+}
+
+/* ---------- bookmarks ---------- */
+function syncBookmarks(){
+ const books=getBookmarks();let changed=false;
+ books.forEach(b=>{
+   const a=aircraft.find(x=>x.hex===b.hex);
+   if(!a)return;
+   b.lastSeen=Date.now();
+   b.current={flight:currentFlight(a),lat:a.lat,lon:a.lon,alt:a.alt_baro,gs:a.gs,track:hdg(a)};
+   b.currentFlight=currentFlight(a);
+   if(a.t)b.type=a.t; if(a.r)b.reg=a.r;
+   if(!b.history)b.history=[];
+   const last=b.history[0];
+   if(!last||last.flight!==b.currentFlight||Date.now()-last.t>30*60*1000){
+     b.history.unshift({t:Date.now(),flight:b.currentFlight,alt:a.alt_baro,lat:a.lat,lon:a.lon});
+     b.history=b.history.slice(0,40);
+   }
+   changed=true;
+ });
+ if(changed)saveBookmarks(books);
+}
+function toggleBookmark(a){
+ let b=getBookmarks(), i=b.findIndex(x=>x.hex===a.hex);
+ if(i>=0){b.splice(i,1);toast('Removed from bookmarks')}
+ else{
+   b.unshift({hex:a.hex,added:Date.now(),discoveredFlight:currentFlight(a),discoveredAt:Date.now(),
+     airline:airlineFromCall(a.flight),type:planeName(a),reg:a.r||null,currentFlight:currentFlight(a),lastSeen:Date.now(),
+     current:{flight:currentFlight(a),lat:a.lat,lon:a.lon,alt:a.alt_baro,gs:a.gs,track:hdg(a)},
+     history:[{t:Date.now(),flight:currentFlight(a),alt:a.alt_baro,lat:a.lat,lon:a.lon}]});
+   toast('Aircraft bookmarked');
+ }
+ saveBookmarks(b);redraw();
+}
+function removeBookmark(hex){saveBookmarks(getBookmarks().filter(x=>x.hex!==hex));toast('Removed from bookmarks');redraw();renderBookmarks()}
+
+/* ---------- drawer views ---------- */
+function setNav(id){document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n.id===id))}
+function openDrawer(){document.getElementById('drawer').classList.add('open')}
+function closeDrawer(){document.getElementById('drawer').classList.remove('open');drawerView=null;selected=null;setNav('navMap')}
+function refreshOpenDrawer(){
+ if(!document.getElementById('drawer').classList.contains('open'))return;
+ if(drawerView==='plane'&&selected){const a=aircraft.find(x=>x.hex===selected.hex);if(a)openPlane(a)}
+ else if(drawerView==='flights')renderFlights();
+ else if(drawerView==='bookmarks')renderBookmarks();
+}
+function openPlane(a){
+ selected=a;drawerView='plane';const b=findBook(a.hex);
+ document.getElementById('drawerTitle').textContent=currentFlight(a);
+ const h=hdg(a);
+ document.getElementById('drawerContent').innerHTML=`
+ <div class="detail">
+  <div class="hero"><div style="width:84px;height:84px;transform:rotate(${h??0}deg);filter:drop-shadow(0 18px 20px #0008)">${PLANE_SVG}</div></div>
+  <div style="display:flex;justify-content:space-between;align-items:end"><div><h3>${esc(currentFlight(a))}</h3><div class="muted">${esc(airlineFromCall(a.flight))} · ${esc(planeName(a))}${a.r?' · '+esc(a.r):''} · ${esc(String(a.hex).toUpperCase())}</div></div>
+  <button class="star" style="font-size:26px;background:none" id="starBtn">${b?'★':'☆'}</button></div>
+  <div class="grid4">
+   <div class="metric"><b>${fmtAlt(a.alt_baro)}</b><span>ALTITUDE</span></div>
+   <div class="metric"><b>${kmh(a.gs)}</b><span>GROUND SPEED</span></div>
+   <div class="metric"><b>${h!=null?Math.round(h)+'°':'—'}</b><span>HEADING</span></div>
+   <div class="metric"><b>${km(distanceToUser(a))}</b><span>FROM YOU</span></div>
+  </div>
+  ${b?`<div style="margin-top:14px;padding:11px;border-radius:13px;background:#09192a;font-size:10px;color:#9db2c8;line-height:1.6">
+   Discovered ${new Date(b.discoveredAt).toLocaleString()} · first seen as <b style="color:white">${esc(b.discoveredFlight)}</b><br>
+   Current callsign: <b style="color:#55c0ff">${esc(b.currentFlight)}</b> · ${b.history?.length||1} observations
+  </div>`:''}
+  <button class="primary" id="trackBtn">${b?'Remove bookmark':'Bookmark aircraft'}</button>
+ </div>`;
+ const t=()=>{toggleBookmark(a);openPlane(a)};
+ document.getElementById('starBtn').onclick=t;document.getElementById('trackBtn').onclick=t;
+ openDrawer();
+}
+function openBookmarkDetail(b){
+ drawerView='bookmarkDetail';
+ document.getElementById('drawerTitle').textContent=b.currentFlight||b.discoveredFlight;
+ document.getElementById('drawerContent').innerHTML=`<div class="detail">
+  <h3 style="margin-top:0">${esc(b.currentFlight||b.discoveredFlight)}</h3>
+  <div class="muted">${esc(b.airline||'Unknown operator')} · ${esc(b.type||'Aircraft')}${b.reg?' · '+esc(b.reg):''} · ${esc(b.hex.toUpperCase())}</div>
+  <div style="margin-top:12px;font-size:11px;color:#9db2c8;line-height:1.6">Not in the live feed right now.<br>Last seen ${b.lastSeen?new Date(b.lastSeen).toLocaleString():'—'}<br>First found ${new Date(b.discoveredAt).toLocaleString()} as <b style="color:#fff">${esc(b.discoveredFlight)}</b></div>
+  <div class="eyebrow" style="margin-top:16px">Flight history</div>
+  ${(b.history||[]).map(h=>`<div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #ffffff0d;font-size:11px"><b>${esc(h.flight)}</b><span style="color:#7f96ae">${new Date(h.t).toLocaleString([],{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})} · ${fmtAlt(h.alt)}</span></div>`).join('')}
+  <button class="primary" id="rmBtn">Remove bookmark</button></div>`;
+ document.getElementById('rmBtn').onclick=()=>removeBookmark(b.hex);
+ openDrawer();
+}
+function renderBookmarks(){
+ drawerView='bookmarks';setNav('navBookmarks');
+ const all=getBookmarks();document.getElementById('drawerTitle').textContent='Bookmarks';
+ const live=new Set(aircraft.map(a=>a.hex));
+ const flying=all.filter(b=>live.has(b.hex));
+ const seg=`<div class="segment"><button data-f="all" class="${bookFilter==='all'?'active':''}">All ${all.length}</button><button data-f="flying" class="${bookFilter==='flying'?'active':''}">Flying now ${flying.length}</button><button data-f="history" class="${bookFilter==='history'?'active':''}">History</button></div>`;
+ let body;
+ if(!all.length){
+   body=`<div style="padding:30px 12px;text-align:center;color:#7890a8;font-size:12px;line-height:1.6">Tap an aircraft and bookmark it. SkyTrack remembers the flight you found it on and updates its current callsign whenever the aircraft is seen again.</div>`;
+ }else if(bookFilter==='history'){
+   const ev=all.flatMap(b=>(b.history||[]).map(h=>({...h,hex:b.hex}))).sort((x,y)=>y.t-x.t).slice(0,60);
+   body=ev.map(h=>`<div class="book" data-hex="${h.hex}" style="align-items:center"><div class="book-main"><div class="book-top"><b>${esc(h.flight)}</b><span style="font-size:10px;color:#7f96ae">${new Date(h.t).toLocaleString([],{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</span></div><small>${esc(h.hex.toUpperCase())} · ${fmtAlt(h.alt)}</small></div></div>`).join('');
+ }else{
+   const list=bookFilter==='flying'?flying:all;
+   body=list.length?list.map(x=>{const isLive=live.has(x.hex);return `<div class="book" data-hex="${x.hex}">
+    <div class="thumb"><div style="width:30px;height:30px;transform:rotate(${x.current?.track??0}deg)">${PLANE_SVG}</div></div>
+    <div class="book-main"><div class="book-top"><b>${esc(x.currentFlight||x.discoveredFlight)}</b><span class="star">★</span></div>
+    <small>${esc(x.airline||'Unknown operator')} · ${esc(x.type||'Aircraft')} · ${esc(x.hex.toUpperCase())}</small>
+    <div class="route">${isLive?'Now flying <strong>'+esc(x.currentFlight)+'</strong> · '+fmtAlt(x.current?.alt):'Last seen '+(x.lastSeen?new Date(x.lastSeen).toLocaleDateString():'—')} <span class="live">${isLive?'● LIVE':''}</span></div>
+    <small>Found as ${esc(x.discoveredFlight)} on ${new Date(x.discoveredAt).toLocaleDateString()} · ${x.history?.length||1} observations</small></div>
+   </div>`}).join(''):`<div style="padding:30px;text-align:center;color:#7890a8;font-size:12px">None of your bookmarked aircraft are in the live feed right now.</div>`;
+ }
+ document.getElementById('drawerContent').innerHTML=seg+body;
+ document.querySelectorAll('#drawerContent .segment button').forEach(btn=>btn.onclick=()=>{bookFilter=btn.dataset.f;renderBookmarks()});
+ document.querySelectorAll('#drawerContent .book').forEach(e=>e.onclick=()=>{
+   const a=aircraft.find(x=>x.hex===e.dataset.hex);
+   if(a){map.setView([a.lat,a.lon],Math.max(map.getZoom(),9));openPlane(a)}
+   else{const b=findBook(e.dataset.hex);if(b)openBookmarkDetail(b)}
+ });
+ openDrawer();
+}
+function renderFlights(){
+ drawerView='flights';setNav('navFlights');
+ document.getElementById('drawerTitle').textContent=focus?`Within ${radius} km`:'Nearby Flights';
+ const list=visibleAircraft().slice();
+ if(flightSort==='alt')list.sort((a,b)=>altNum(b.alt_baro)-altNum(a.alt_baro));
+ else if(flightSort==='speed')list.sort((a,b)=>(b.gs||0)-(a.gs||0));
+ else list.sort((a,b)=>distanceToUser(a)-distanceToUser(b));
+ const seg=`<div class="segment">${[['dist','Distance'],['alt','Altitude'],['speed','Speed']].map(([k,l])=>`<button data-s="${k}" class="${flightSort===k?'active':''}">${l}</button>`).join('')}</div>`;
+ document.getElementById('drawerContent').innerHTML=seg+(list.length?list.slice(0,60).map(a=>`<div class="book" data-hex="${a.hex}"><div class="thumb"><div style="width:30px;height:30px;transform:rotate(${hdg(a)??0}deg)">${PLANE_SVG}</div></div><div class="book-main"><div class="book-top"><b>${esc(currentFlight(a))}</b><span style="font-size:10px;color:#7f96ae">${km(distanceToUser(a))}</span></div><small>${esc(airlineFromCall(a.flight))} · ${esc(planeName(a))}</small><div class="route">${fmtAlt(a.alt_baro)} · ${kmh(a.gs)} · ${hdg(a)!=null?Math.round(hdg(a))+'°':'—'} ${findBook(a.hex)?'<span class="star">★</span>':''}</div></div></div>`).join(''):`<div style="padding:30px;text-align:center;color:#7890a8;font-size:12px">${lastGood?'No aircraft in the selected radius.':'Waiting for live data…'}</div>`);
+ document.querySelectorAll('#drawerContent .segment button').forEach(btn=>btn.onclick=()=>{flightSort=btn.dataset.s;renderFlights()});
+ document.querySelectorAll('#drawerContent .book').forEach(e=>e.onclick=()=>{const a=aircraft.find(x=>x.hex===e.dataset.hex);if(a){map.setView([a.lat,a.lon],Math.max(map.getZoom(),9));openPlane(a)}});
+ openDrawer();
+}
+function renderSettings(){
+ drawerView='settings';setNav('navSettings');
+ document.getElementById('drawerTitle').textContent='Settings';
+ const rows=[['labels','Show callsign labels',showLabels],['focus','Focus mode (only planes in radius)',focus],['three','3D altitude view',is3D],['auto','Auto-refresh every 20 s',autoRefresh]];
+ document.getElementById('drawerContent').innerHTML=`<div class="detail">
+  <div class="eyebrow">Map & Display</div>
+  ${rows.map(([k,l,v])=>`<div class="toggle-row" data-k="${k}"><span>${l}</span><div class="switch ${v?'on':''}"></div></div>`).join('')}
+  <div class="eyebrow" style="margin-top:18px">Location</div>
+  <div style="font-size:15px;font-weight:700;margin-top:7px">${esc(user.name)} · ${radius} km</div>
+  <div class="muted" style="margin-top:4px">${user.lat.toFixed(3)}, ${user.lng.toFixed(3)}. Change it with the ⌖ button at the top.</div>
+  <div class="eyebrow" style="margin-top:18px">Data sources</div>
+  ${SOURCES.map((src,i)=>{const st=sourceStatus[i];return `<div style="display:flex;justify-content:space-between;gap:10px;padding:10px 2px;border-bottom:1px solid #ffffff0d;font-size:11px"><span>${esc(src.name)}${i===preferredSource&&st&&st.ok?' <span style="color:#4fe3a0">(in use)</span>':''}</span><span style="text-align:right;color:${!st?'#7f96ae':st.ok?'#4fe3a0':'#ffb4a8'}">${st?esc(st.msg):'not tried yet'}</span></div>`}).join('')}
+  <div class="muted" style="margin-top:6px">Page address: ${esc(location.protocol==='https:'?location.host:location.protocol)} · last check ${lastCheck?timeStr(lastCheck):'—'}</div>
+  <button class="primary" id="testBtn">Test all sources now</button>
+  <button class="primary" id="resetBtn" style="background:#3a1620;box-shadow:none">Reset bookmarks & history</button>
+ </div>
+ <div style="padding:16px 5px;color:#6f879f;font-size:10px;line-height:1.6">Live aircraft data: community ADS-B networks (ADSB.lol, adsb.fi, airplanes.live), ODbL. Map: © OpenStreetMap contributors, © CARTO. Bookmarks and your location are stored only in this browser.</div>`;
+ document.querySelectorAll('.toggle-row').forEach(r=>r.onclick=()=>{
+   const k=r.dataset.k;
+   if(k==='labels'){showLabels=!showLabels;document.body.classList.toggle('nolabels',!showLabels)}
+   if(k==='focus')setFocus(!focus);
+   if(k==='three'){set3D(!is3D)}
+   if(k==='auto'){autoRefresh=!autoRefresh;toast(autoRefresh?'Auto-refresh on':'Auto-refresh paused')}
+   renderSettings();
+ });
+ document.getElementById('testBtn').onclick=testAllSources;
+ document.getElementById('resetBtn').onclick=()=>{if(confirm('Delete all local bookmarks and history?')){localStorage.removeItem(LS);toast('Bookmarks cleared');redraw();renderSettings()}};
+ openDrawer();
+}
+
+/* ---------- 3D view ---------- */
+function render3D(){
+ const layer=document.getElementById('air3dLayer');
+ if(!is3D){layer.innerHTML='';return}
+ layer.innerHTML='';
+ const span=(focus?radius:150)*2.15;
+ visibleAircraft().slice(0,120).forEach(a=>{
+   const dx=(a.lon-user.lng)*Math.cos(user.lat*Math.PI/180)*111;
+   const dy=(a.lat-user.lat)*111;
+   const x=50+dx/span*100,y=46-dy/span*100;
+   const z=Math.min(330,altNum(a.alt_baro)/35);
+   const el=document.createElement('div');el.className='air3d';el.style.left=x+'%';el.style.top=(y-z*.16)+'%';
+   el.style.setProperty('--heading',(hdg(a)??0)+'deg');
+   if(findBook(a.hex))el.style.filter='drop-shadow(0 0 6px #ffd34e)';
+   el.innerHTML=`<div class="plane3">${PLANE_SVG}</div><div class="tag3">${esc(currentFlight(a))} · ${fmtAlt(a.alt_baro)}</div>`;
+   el.onclick=()=>openPlane(a);layer.appendChild(el);
+ });
+}
+function set3D(on){is3D=on;document.getElementById('threeD').classList.toggle('show',on);document.getElementById('map').style.visibility=on?'hidden':'visible';document.getElementById('modebar').style.display=on?'flex':'none';document.getElementById('threeToggle').classList.toggle('active',on);render3D()}
+function setFocus(on){focus=on;document.getElementById('focusToggle').classList.toggle('active',focus);redraw();fetchAircraft()}
+
+/* ---------- location ---------- */
+let pickerActive=false;
+function openLocationPicker(){
+ closeDrawer(); if(is3D)set3D(false); pickerActive=true; document.body.classList.add('picking'); document.getElementById('locationPicker').style.display='block';
+ map.setView([user.lat,user.lng],Math.max(map.getZoom(),8)); toast('Drag the map to choose your location');
+}
+function closeLocationPicker(){pickerActive=false;document.body.classList.remove('picking');document.getElementById('locationPicker').style.display='none'}
+function setLocation(lat,lng,name){
+ user={lat,lng,name};
+ try{localStorage.setItem(LOC_KEY,JSON.stringify(user))}catch(e){}
+ document.getElementById('locationTitle').textContent=name;
+ aircraft=[];lastGood=0;redraw();
+ closeLocationPicker();document.getElementById('loading').classList.add('show');fetchAircraft();
+}
+function confirmLocation(){const c=map.getCenter();setLocation(c.lat,c.lng,'Custom location')}
+function useGps(){
+ if(!navigator.geolocation){toast('GPS not available in this browser');return}
+ toast('Requesting GPS…');
+ navigator.geolocation.getCurrentPosition(p=>{setLocation(p.coords.latitude,p.coords.longitude,'My location');map.setView([p.coords.latitude,p.coords.longitude],9)},
+  ()=>toast('GPS blocked here. Drag the map instead'),{timeout:8000,maximumAge:60000});
+}
+
+/* ---------- wiring ---------- */
+document.getElementById('radius').oninput=e=>{radius=+e.target.value;document.getElementById('radiusText').textContent=radius;document.getElementById('radiusOut').textContent=radius+' km';redraw();clearTimeout(timer);timer=setTimeout(fetchAircraft,600)}
+document.getElementById('focusToggle').onclick=()=>setFocus(!focus)
+document.getElementById('threeToggle').onclick=()=>set3D(!is3D)
+document.getElementById('refreshBtn').onclick=()=>{document.getElementById('loading').classList.add('show');fetchAircraft()}
+document.getElementById('locBtn').onclick=openLocationPicker
+document.getElementById('pickerCancel').onclick=closeLocationPicker
+document.getElementById('pickerConfirm').onclick=confirmLocation
+document.getElementById('pickerGps').onclick=useGps
+document.getElementById('closeDrawer').onclick=closeDrawer
+document.getElementById('navMap').onclick=closeDrawer
+document.getElementById('navBookmarks').onclick=renderBookmarks
+document.getElementById('navFlights').onclick=renderFlights
+document.getElementById('navSettings').onclick=renderSettings
+document.querySelectorAll('.modebar button').forEach(b=>b.onclick=()=>{perspective=b.dataset.mode==='perspective';document.querySelectorAll('.modebar button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelector('.ground').style.transform=perspective?'perspective(700px) rotateX(58deg)':'rotateX(58deg)'});
+document.getElementById('search').oninput=e=>{searchQ=e.target.value.trim().toUpperCase();redraw()}
+map.on('click',e=>{ if(pickerActive){ map.setView(e.latlng,map.getZoom(),{animate:true}); return; } if(document.getElementById('drawer').classList.contains('open'))closeDrawer(); });
+
+document.getElementById('loading').classList.add('show');
+fetchAircraft();
+setInterval(()=>{if(autoRefresh&&!document.hidden)fetchAircraft()},20000);
+</script>
+</body>
+</html>
