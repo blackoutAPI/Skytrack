@@ -178,10 +178,10 @@ function loadLoc(){try{const l=JSON.parse(localStorage.getItem(LOC_KEY));if(l&&i
 let user=loadLoc();
 let radius=50, focus=true, is3D=false, perspective=false, aircraft=[], showLabels=true, autoRefresh=true;
 let refreshSec=(()=>{const v=parseInt(localStorage.getItem('skytrack.refreshSec')||'20',10);return [10,20,30,60].includes(v)?v:20})();
-let refreshTimer=null;
+let refreshTimer=null, failStreak=0, nextAllowed=0, lastAttempt=0;
 function scheduleRefresh(){
  if(refreshTimer)clearInterval(refreshTimer);
- refreshTimer=setInterval(()=>{if(autoRefresh&&!document.hidden)fetchAircraft()},refreshSec*1000);
+ refreshTimer=setInterval(()=>{if(autoRefresh&&!document.hidden&&Date.now()>=nextAllowed)fetchAircraft()},refreshSec*1000);
 }
 function setRefreshSec(v){refreshSec=v;try{localStorage.setItem('skytrack.refreshSec',v)}catch(e){}scheduleRefresh()}
 let selected=null, timer=null, searchQ='', bookFilter='all', flightSort='dist', drawerView=null;
@@ -200,7 +200,7 @@ const map=L.map('map',{zoomControl:false,attributionControl:true}).setView([user
 // Esri World Dark Gray Canvas: keyless raster tiles, real detail up to z16 (upscaled beyond).
 // (CARTO's basemaps.cartocdn.com started requiring an API key in Aug 2026.)
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{
-  maxZoom:18, maxNativeZoom:16, attribution:'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors · ADS-B: ADSB.lol / adsb.fi / airplanes.live'
+  maxZoom:18, maxNativeZoom:16, attribution:'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors · ADS-B: ADSB.lol / adsb.fi'
 }).addTo(map);
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',{
   maxZoom:18, maxNativeZoom:16, pane:'overlayPane'
@@ -253,17 +253,23 @@ function redraw(){
 /* ---------- live data: several free ADS-B feeds, same readsb v2 format, tried in order ---------- */
 const direct=(la,lo,nm)=>`https://api.adsb.lol/v2/lat/${la}/lon/${lo}/dist/${nm}`;
 const adsbfi=(la,lo,nm)=>`https://opendata.adsb.fi/api/v2/lat/${la}/lon/${lo}/dist/${nm}`;
-const airplaneslive=(la,lo,nm)=>`https://api.airplanes.live/v2/point/${la}/${lo}/${nm}`;
-const codetabs=u=>'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(u);
-const allorigins=u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u);
-const SOURCES=[
+function normProxy(v){v=String(v||'').trim().replace(/\/+$/,'');if(!v)return '';if(!/^https?:\/\//.test(v))v='https://'+v;return v}
+let proxyUrl=normProxy(localStorage.getItem('skytrack.proxy'));
+function buildSources(){
+ const own=proxyUrl?[{name:'Your Cloudflare relay',url:(la,lo,nm)=>`${proxyUrl}/?lat=${la}&lon=${lo}&dist=${nm}`}]:[];
+ return [PUBLIC_SOURCES[0],...own,...PUBLIC_SOURCES.slice(1)];
+}
+const PUBLIC_SOURCES=[
  {name:'ADSB.lol',url:direct},
  {name:'adsb.fi',url:adsbfi},
- {name:'airplanes.live',url:airplaneslive},
- {name:'ADSB.lol via codetabs relay',url:(la,lo,nm)=>codetabs(direct(la,lo,nm))},
- {name:'adsb.fi via codetabs relay',url:(la,lo,nm)=>codetabs(adsbfi(la,lo,nm))},
- {name:'ADSB.lol via allorigins relay',url:(la,lo,nm)=>allorigins(direct(la,lo,nm))},
 ];
+let SOURCES=buildSources();
+function setProxy(v){
+ proxyUrl=normProxy(v);
+ try{proxyUrl?localStorage.setItem('skytrack.proxy',proxyUrl):localStorage.removeItem('skytrack.proxy')}catch(e){}
+ SOURCES=buildSources(); for(const k in sourceStatus)delete sourceStatus[k]; preferredSource=0;
+ toast(proxyUrl?'Relay saved, testing…':'Relay removed'); fetchAircraft();
+}
 async function fetchJSON(url,ms){
  // Timeout via Promise.race instead of AbortController: some embedded previews wrap fetch
  // and forward it with postMessage, which cannot clone an AbortSignal.
@@ -271,23 +277,25 @@ async function fetchJSON(url,ms){
  const timeout=new Promise((_,rej)=>{t=setTimeout(()=>rej(new Error('timeout after '+ms+' ms')),ms)});
  try{
    const r=await Promise.race([fetch(url,{cache:'no-store'}),timeout]);
-   if(!r.ok)throw new Error('HTTP '+r.status);
+   if(!r.ok){let extra='';try{const j=await r.json();if(j&&j.details)extra=' ('+j.details.join('; ')+')';else if(j&&j.error)extra=' ('+j.error+')'}catch(e){}throw new Error('HTTP '+r.status+extra)}
    return await Promise.race([r.json(),timeout]);
  }finally{clearTimeout(t)}
 }
 function describeError(e){
  const m=String(e&&e.message||e);
+ if(/^HTTP 502/.test(m))return 'relay reached, but '+m.replace(/^HTTP 502\s*/,'').replace(/^\(|\)$/g,'')+'';
+ if(/^HTTP 5/.test(m))return m+' · server error';
  if(/HTTP 4(01|03)/.test(m))return m+' · access denied (key required?)';
  if(/HTTP 429/.test(m))return m+' · rate limited, wait a minute';
  if(/HTTP/.test(m))return m+' · server error';
  if(/timeout/.test(m))return 'timeout · no answer in 8 s';
  if(/JSON|Unexpected token/i.test(m))return 'bad response (not flight data)';
  if(/unexpected response/.test(m))return 'bad response (not flight data)';
- if(/Failed to fetch|NetworkError|Load failed|network/i.test(m))return 'blocked · network or browser security (CORS)';
+ if(/Failed to fetch|NetworkError|Load failed|network/i.test(m))return 'refused · rate limit or browser block (browser can\'t tell which)';
  return m.slice(0,90);
 }
 async function fetchAircraft(){
- if(inFlight)return; inFlight=true;
+ if(inFlight)return; inFlight=true; lastAttempt=Date.now();
  const nm=Math.round(focus?Math.max(6,Math.min(250,radius/1.852*1.25)):150);
  const la=user.lat.toFixed(4), lo=user.lng.toFixed(4);
  const order=[preferredSource,...SOURCES.map((_,i)=>i).filter(i=>i!==preferredSource)];
@@ -308,11 +316,14 @@ async function fetchAircraft(){
  inFlight=false; lastCheck=Date.now();
  document.getElementById('loading').classList.remove('show');
  if(drawerView==='settings')renderSettings();
- if(ok){syncBookmarks();redraw();refreshOpenDrawer()}
+ if(ok){failStreak=0;nextAllowed=0;syncBookmarks();redraw();refreshOpenDrawer()}
  else{
    const src=document.getElementById('srcLine');src.classList.add('warn');
    stale=!!lastGood;
-   src.textContent=(lastGood?'Live feed unreachable · showing data from '+timeStr(lastGood):'No live feed reachable')+' · details: More → Data sources';
+   failStreak++;
+   const waitS=Math.min(300,refreshSec*Math.pow(2,failStreak));
+   nextAllowed=Date.now()+waitS*1000;
+   src.textContent=(lastGood?'Feed unavailable · showing data from '+timeStr(lastGood):'No live feed right now')+' · retrying in '+(waitS>=60?Math.round(waitS/60)+' min':waitS+' s')+' · details: More';
    if(!warnedOffline){toast('No live feed reachable right now');warnedOffline=true}
    redraw();
  }
@@ -321,13 +332,13 @@ async function fetchAircraft(){
 async function testAllSources(){
  toast('Testing all sources…');
  const nm=Math.round(Math.max(6,Math.min(250,radius/1.852*1.25))), la=user.lat.toFixed(4), lo=user.lng.toFixed(4);
- await Promise.all(SOURCES.map(async(src,i)=>{
+ for(let i=0;i<SOURCES.length;i++){const src=SOURCES[i];
    try{const j=await fetchJSON(src.url(la,lo,nm),8000);const l=j.ac||j.aircraft;if(!Array.isArray(l))throw new Error('unexpected response');sourceStatus[i]={ok:true,msg:l.length+' aircraft',t:Date.now()}}
    catch(e){sourceStatus[i]={ok:false,msg:describeError(e),t:Date.now()}}
- }));
+ }
  lastCheck=Date.now(); if(drawerView==='settings')renderSettings();
  const firstOk=SOURCES.findIndex((_,i)=>sourceStatus[i]&&sourceStatus[i].ok);
- if(firstOk>=0){preferredSource=firstOk;fetchAircraft()}
+ if(firstOk>=0){preferredSource=firstOk;failStreak=0;nextAllowed=0;fetchAircraft()}
 }
 
 /* ---------- bookmarks ---------- */
@@ -469,13 +480,16 @@ function renderSettings(){
   <div class="eyebrow" style="margin-top:18px">Location</div>
   <div style="font-size:15px;font-weight:700;margin-top:7px">${esc(user.name)} · ${radius} km</div>
   <div class="muted" style="margin-top:4px">${user.lat.toFixed(3)}, ${user.lng.toFixed(3)}. Change it with the ⌖ button at the top.</div>
+  <div class="eyebrow" style="margin-top:18px">Your relay (Cloudflare Worker)</div>
+  <div style="display:flex;gap:8px;margin-top:8px"><input id="proxyInput" placeholder="skytrack.yourname.workers.dev" value="${esc(proxyUrl)}" style="flex:1;min-width:0;background:#09192a;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:12px;outline:0"><button id="proxySave" style="padding:0 14px;border-radius:12px;background:#1597ff;font-size:12px;font-weight:700">Save</button></div>
+  <div class="muted" style="margin-top:5px">Needed because the flight services block direct browser access. Leave empty to remove.</div>
   <div class="eyebrow" style="margin-top:18px">Data sources</div>
   ${SOURCES.map((src,i)=>{const st=sourceStatus[i];return `<div style="display:flex;justify-content:space-between;gap:10px;padding:10px 2px;border-bottom:1px solid #ffffff0d;font-size:11px"><span>${esc(src.name)}${i===preferredSource&&st&&st.ok?' <span style="color:#4fe3a0">(in use)</span>':''}</span><span style="text-align:right;color:${!st?'#7f96ae':st.ok?'#4fe3a0':'#ffb4a8'}">${st?esc(st.msg):'not tried yet'}</span></div>`}).join('')}
   <div class="muted" style="margin-top:6px">Page address: ${esc(location.protocol==='https:'?location.host:location.protocol)} · last check ${lastCheck?timeStr(lastCheck):'—'}</div>
   <button class="primary" id="testBtn">Test all sources now</button>
   <button class="primary" id="resetBtn" style="background:#3a1620;box-shadow:none">Reset bookmarks & history</button>
  </div>
- <div style="padding:16px 5px;color:#6f879f;font-size:10px;line-height:1.6">Live aircraft data: community ADS-B networks (ADSB.lol, adsb.fi, airplanes.live), ODbL. Map: © OpenStreetMap contributors, © CARTO. Bookmarks and your location are stored only in this browser.</div>`;
+ <div style="padding:16px 5px;color:#6f879f;font-size:10px;line-height:1.6">Live aircraft data: community ADS-B networks (ADSB.lol, adsb.fi), ODbL. Map: © OpenStreetMap contributors, © CARTO. Bookmarks and your location are stored only in this browser.</div>`;
  document.querySelectorAll('#drawerContent .segment [data-rs]').forEach(btn=>btn.onclick=()=>{setRefreshSec(+btn.dataset.rs);renderSettings()});
  document.querySelectorAll('.toggle-row').forEach(r=>r.onclick=()=>{
    const k=r.dataset.k;
@@ -486,6 +500,7 @@ function renderSettings(){
    renderSettings();
  });
  document.getElementById('testBtn').onclick=testAllSources;
+ document.getElementById('proxySave').onclick=()=>{setProxy(document.getElementById('proxyInput').value);renderSettings()};
  document.getElementById('resetBtn').onclick=()=>{if(confirm('Delete all local bookmarks and history?')){localStorage.removeItem(LS);toast('Bookmarks cleared');redraw();renderSettings()}};
  openDrawer();
 }
@@ -542,7 +557,7 @@ function useGps(){
 document.getElementById('radius').oninput=e=>{radius=+e.target.value;document.getElementById('radiusText').textContent=radius;document.getElementById('radiusOut').textContent=radius+' km';redraw();clearTimeout(timer);timer=setTimeout(fetchAircraft,600)}
 document.getElementById('focusToggle').onclick=()=>setFocus(!focus)
 document.getElementById('threeToggle').onclick=()=>set3D(!is3D)
-document.getElementById('refreshBtn').onclick=()=>{document.getElementById('loading').classList.add('show');fetchAircraft()}
+document.getElementById('refreshBtn').onclick=()=>{nextAllowed=0;document.getElementById('loading').classList.add('show');fetchAircraft()}
 document.getElementById('locBtn').onclick=openLocationPicker
 document.getElementById('pickerCancel').onclick=closeLocationPicker
 document.getElementById('pickerConfirm').onclick=confirmLocation
@@ -560,8 +575,9 @@ document.getElementById('loading').classList.add('show');
 redraw();
 fetchAircraft();
 scheduleRefresh();
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){inFlight=false;fetchAircraft()}});
-window.addEventListener('pageshow',ev=>{if(ev.persisted){inFlight=false;fetchAircraft()}});
+function resumeFetch(){const now=Date.now();if(now>=nextAllowed&&now-lastAttempt>10000){inFlight=false;fetchAircraft()}}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)resumeFetch()});
+window.addEventListener('pageshow',ev=>{if(ev.persisted)resumeFetch()});
 </script>
 </body>
-</html>
+      </html>
