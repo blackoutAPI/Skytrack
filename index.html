@@ -236,12 +236,17 @@ function redraw(){
 
 /* ---------- live data: several free ADS-B feeds, same readsb v2 format, tried in order ---------- */
 const direct=(la,lo,nm)=>`https://api.adsb.lol/v2/lat/${la}/lon/${lo}/dist/${nm}`;
+const adsbfi=(la,lo,nm)=>`https://opendata.adsb.fi/api/v2/lat/${la}/lon/${lo}/dist/${nm}`;
+const airplaneslive=(la,lo,nm)=>`https://api.airplanes.live/v2/point/${la}/${lo}/${nm}`;
+const codetabs=u=>'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(u);
+const allorigins=u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u);
 const SOURCES=[
  {name:'ADSB.lol',url:direct},
- {name:'adsb.fi',url:(la,lo,nm)=>`https://opendata.adsb.fi/api/v2/lat/${la}/lon/${lo}/dist/${nm}`},
- {name:'airplanes.live',url:(la,lo,nm)=>`https://api.airplanes.live/v2/point/${la}/${lo}/${nm}`},
- {name:'ADSB.lol via corsproxy.io',url:(la,lo,nm)=>'https://corsproxy.io/?url='+encodeURIComponent(direct(la,lo,nm))},
- {name:'ADSB.lol via allorigins',url:(la,lo,nm)=>'https://api.allorigins.win/raw?url='+encodeURIComponent(direct(la,lo,nm))},
+ {name:'adsb.fi',url:adsbfi},
+ {name:'airplanes.live',url:airplaneslive},
+ {name:'ADSB.lol via codetabs relay',url:(la,lo,nm)=>codetabs(direct(la,lo,nm))},
+ {name:'adsb.fi via codetabs relay',url:(la,lo,nm)=>codetabs(adsbfi(la,lo,nm))},
+ {name:'ADSB.lol via allorigins relay',url:(la,lo,nm)=>allorigins(direct(la,lo,nm))},
 ];
 async function fetchJSON(url,ms){
  // Timeout via Promise.race instead of AbortController: some embedded previews wrap fetch
