@@ -752,17 +752,21 @@ button {
     </div>
 
     <div
-      style="
-        color:var(--muted);
-        font-size:11px;
-        line-height:1.5;
-      "
-    >
-      SkyTrack uses the private Cloudflare relay
-      to access the aircraft APIs without relying
-      on browser CORS proxies.
-    </div>
-
+  style="
+    color:var(--muted);
+    font-size:11px;
+    line-height:1.5;
+  "
+>
+  Live aircraft data provided by
+  <a
+    href="https://avioadsb.org"
+    target="_blank"
+    rel="noopener noreferrer"
+    style="color:var(--accent)"
+  >AvioADSB</a>
+  (CC BY 4.0).
+</div>
   </div>
 
 </div>
@@ -1090,17 +1094,51 @@ function renderSources() {
    FETCH
 ========================================================= */
 
+function distanceNm(
+  lat1,
+  lon1,
+  lat2,
+  lon2
+) {
+  const R = 3440.065;
+
+  const dLat =
+    (lat2 - lat1) *
+    Math.PI / 180;
+
+  const dLon =
+    (lon2 - lon1) *
+    Math.PI / 180;
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) *
+    Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) ** 2;
+
+  return (
+    2 *
+    R *
+    Math.asin(
+      Math.sqrt(a)
+    )
+  );
+}
+
 async function fetchAircraft() {
 
+  /*
+   * Do not start another request while
+   * the previous request is still running.
+   */
   if (loading) {
     return;
   }
 
   loading = true;
 
-  sourceStates[
-    "Cloudflare relay"
-  ] = "loading";
+  sourceStates["AvioADSB"] =
+    "loading";
 
   renderSources();
 
@@ -1119,6 +1157,9 @@ async function fetchAircraft() {
       $("distance").value
     ) || DEFAULT_DIST;
 
+  /*
+   * Validate coordinates.
+   */
   if (
     lat == null ||
     lon == null ||
@@ -1126,9 +1167,8 @@ async function fetchAircraft() {
     Math.abs(lon) > 180
   ) {
 
-    sourceStates[
-      "Cloudflare relay"
-    ] = "bad";
+    sourceStates["AvioADSB"] =
+      "bad";
 
     renderSources();
 
@@ -1142,24 +1182,20 @@ async function fetchAircraft() {
     return;
   }
 
-  const url =
-    `${RELAY}/?lat=` +
-    `${encodeURIComponent(lat)}` +
-    `&lon=` +
-    `${encodeURIComponent(lon)}` +
-    `&dist=` +
-    `${encodeURIComponent(dist)}`;
-
   try {
 
+    /*
+     * AvioADSB provides a global live snapshot.
+     * We filter that snapshot locally to the
+     * selected SkyTrack location and radius.
+     */
     const controller =
       new AbortController();
 
     const timeout =
       setTimeout(
-        () =>
-          controller.abort(),
-        7000
+        () => controller.abort(),
+        5000
       );
 
     let response;
@@ -1168,7 +1204,7 @@ async function fetchAircraft() {
 
       response =
         await fetch(
-          url,
+          AVIOADSB_URL,
           {
             method: "GET",
             cache: "no-store",
@@ -1187,23 +1223,8 @@ async function fetchAircraft() {
 
     if (!response.ok) {
 
-      let detail = "";
-
-      try {
-
-        const error =
-          await response.json();
-
-        if (error?.details) {
-          detail =
-            " — " +
-            error.details;
-        }
-
-      } catch {}
-
       throw new Error(
-        `Relay HTTP ${response.status}${detail}`
+        `AvioADSB HTTP ${response.status}`
       );
 
     }
@@ -1213,28 +1234,113 @@ async function fetchAircraft() {
 
     if (
       !data ||
-      !Array.isArray(data.ac)
+      !Array.isArray(
+        data.aircraft
+      )
     ) {
 
       throw new Error(
-        "Relay returned no aircraft array"
+        "AvioADSB returned no aircraft array"
       );
 
     }
 
+    /*
+     * Convert the global AvioADSB snapshot
+     * into the same aircraft array used by
+     * the rest of SkyTrack.
+     */
+    const nearbyAircraft = [];
+
+    for (
+      const ac of data.aircraft
+    ) {
+
+      const acLat =
+        number(ac.lat);
+
+      const acLon =
+        number(ac.lon);
+
+      /*
+       * Aircraft without a current position
+       * cannot be displayed on the map.
+       */
+      if (
+        acLat == null ||
+        acLon == null
+      ) {
+        continue;
+      }
+
+      /*
+       * Ignore extremely stale positions.
+       * AvioADSB reports "seen_pos" in seconds.
+       */
+      const seenPos =
+        number(
+          ac.seen_pos
+        );
+
+      if (
+        seenPos != null &&
+        seenPos > 120
+      ) {
+        continue;
+      }
+
+      const distance =
+        distanceNm(
+          lat,
+          lon,
+          acLat,
+          acLon
+        );
+
+      if (
+        distance <= dist
+      ) {
+
+        nearbyAircraft.push({
+          ...ac,
+
+          distance_nm:
+            Math.round(
+              distance * 10
+            ) / 10
+        });
+
+      }
+
+    }
+
+    /*
+     * IMPORTANT:
+     *
+     * A successful AvioADSB request with
+     * zero aircraft is still a successful
+     * request.
+     *
+     * Therefore we DO replace the current
+     * aircraft list with [] in this case.
+     */
     aircraftData =
-      data.ac;
+      nearbyAircraft;
 
     lastSuccessfulSource =
-      data._source ||
-      "Cloudflare relay";
+      "AvioADSB";
 
-    sourceStates[
-      "Cloudflare relay"
-    ] = "ok";
+    sourceStates["AvioADSB"] =
+      "ok";
 
     renderSources();
 
+    /*
+     * Update the existing SkyTrack UI.
+     * Nothing else in the map/list code
+     * needs to know that the data source
+     * changed.
+     */
     updateMap(
       aircraftData
     );
@@ -1257,30 +1363,43 @@ async function fetchAircraft() {
       now.toLocaleTimeString();
 
     setStatus(
-      `${aircraftData.length} aircraft · ${lastSuccessfulSource}`,
+      `${aircraftData.length} aircraft · AvioADSB`,
       "live"
     );
 
   } catch (error) {
 
-    sourceStates[
-      "Cloudflare relay"
-    ] = "bad";
+    /*
+     * IMPORTANT:
+     *
+     * A temporary network failure does NOT
+     * delete the aircraft currently displayed.
+     *
+     * The next 1-second request can recover
+     * automatically.
+     */
+    sourceStates["AvioADSB"] =
+      "bad";
 
     renderSources();
 
     setStatus(
       error?.name === "AbortError"
-        ? "Relay timeout"
-        : "Data connection failed",
+        ? "AvioADSB timeout"
+        : "AvioADSB connection failed",
       "error"
     );
 
+    /*
+     * Keep the existing aircraftData
+     * and therefore keep the existing
+     * markers on the map.
+     */
     lastUpdate.textContent =
       "last update failed";
 
     console.error(
-      "SkyTrack:",
+      "SkyTrack AvioADSB:",
       error
     );
 
@@ -1289,7 +1408,6 @@ async function fetchAircraft() {
     loading = false;
 
   }
-
 }
 
 /* =========================================================
